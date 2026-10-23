@@ -1,0 +1,97 @@
+# Vehicle Theft Detection - settings
+# Every key is optional; anything left out uses the default in app/config.py.
+# Paths are relative to the project folder.
+
+app:
+  mode: responsive          # responsive = smooth preview, may skip frames
+                            # complete   = analyse every frame, takes as long as it takes
+  display: true
+  display_max_width: 1280   # the window is scaled down to this width
+  log_level: INFO
+
+device:
+  device: auto              # auto | cpu | cuda | cuda:0
+  half: auto                # FP16 on CUDA: auto | on | off
+
+detector:
+  weights: models/yolo11s-seg.pt   # must be a *-seg* (instance segmentation) model
+  auto_download: false             # true lets Ultralytics fetch official weights on first run
+  imgsz: 640
+  min_imgsz: 416            # lowest size adaptive resolution may drop to (responsive mode only)
+  adaptive_imgsz: true
+  conf: 0.35
+  iou: 0.5
+  vehicle_classes: [car, motorcycle, bus, truck]
+  person_classes: [person]
+  other_classes: [bicycle]
+
+tracker:
+  type: bytetrack           # bytetrack | botsort
+  max_gap_frames: 15        # skipped-frame gap that forces a tracker reset
+  lost_after_seconds: 1.0
+  stationary_speed: 0.08    # box diagonals per second below which a vehicle counts as still
+
+pipeline:
+  input_queue_size: 6
+  output_queue_size: 3
+  target_fps: 20
+
+reid:
+  enabled: true
+  backend: auto             # auto | torchreid | torchvision | histogram
+  torchreid_model: osnet_x0_25
+  torchreid_weights: models/osnet_x0_25_msmt17.pth
+  sample_interval_frames: 10
+  thresholds:
+    torchreid:   {match: 0.70, candidate: 0.55}
+    torchvision: {match: 0.88, candidate: 0.80}
+    histogram:   {match: 0.92, candidate: 0.85}
+  authorization_threshold: 0.75
+  allow_generic_backend_for_authorization: false
+
+clothing:
+  enabled: true
+  backend: auto             # auto | segformer | person_mask_bands | off
+  segformer_dir: models/segformer_b2_clothes
+  interval_frames: 30
+
+association:
+  observation_seconds: 2.5
+  confirm_threshold: 0.60
+  candidate_threshold: 0.40
+  ambiguity_margin: 0.12
+
+zones:
+  file: configs/zones.json  # create with: python -m app.zone_editor --video <file>
+  park_seconds: 3.0
+  move_threshold: 0.25
+  move_confirm_seconds: 1.0 # displacement must last this long (ignores one-off box jumps)
+  max_area_change: 0.4      # bigger box size changes are treated as occlusion, not movement
+
+behavior:
+  loiter_seconds: 20
+  repeated_count: 3
+  proximity_min_seconds: 1.5  # must linger this long near a car; walking past never counts
+  linger_speed: 0.35          # "lingering" = slower than this many box diagonals per second
+  entry_confirm_seconds: 3.0  # an apparent entry is withdrawn if someone re-appears there in this time
+
+risk:
+  half_life_seconds: 120
+  cooldown_seconds: 20
+  alert_min_level: LOW
+  levels: {LOW: 15, MEDIUM: 35, HIGH: 55, CRITICAL: 80}
+
+evidence:
+  output_dir: evidence
+  save_annotated_video: true
+  min_level: MEDIUM         # alerts at or above this level get a snapshot and clip
+  pre_event_seconds: 3
+  post_event_seconds: 5
+  retention_days: 0         # 0 keeps sessions forever
+
+storage:
+  db_path: evidence/vtd.sqlite3
+
+privacy:
+  face_processing: false    # not implemented; kept off on purpose
+  save_profile_embeddings: true

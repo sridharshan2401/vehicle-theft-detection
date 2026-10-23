@@ -1,0 +1,9 @@
+# CUDA 12.8 builds of PyTorch. Install these before requirements.txt:
+#   pip install -r requirements-gpu.txt
+#
+# cu128 wheels support NVIDIA GPUs from the GTX 10-series up to RTX 50-series
+# (Blackwell, sm_120). Tested on an RTX 5050 Laptop GPU with driver 595.71.
+# For other CUDA versions use the selector at https://pytorch.org/get-started/locally/
+--index-url https://download.pytorch.org/whl/cu128
+torch==2.9.1
+torchvision==0.24.1

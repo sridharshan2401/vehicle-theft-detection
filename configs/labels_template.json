@@ -1,0 +1,25 @@
+{
+  "video": "cam1_staged_2026-11-01.mp4",
+  "labelled_by": "your name",
+  "notes": "Times are seconds from the start of the video. Points are [x, y] in 0..1 image coordinates, taken on each car while it is parked. Delete these example items and add your own.",
+  "vehicles": {
+    "A": [0.42, 0.61],
+    "B": [0.70, 0.60]
+  },
+  "exits": [
+    {"time": 12.4, "vehicle": "A"},
+    {"time": 13.1, "vehicle": "A"}
+  ],
+  "entries": [
+    {"time": 95.0, "vehicle": "A"}
+  ],
+  "movements": [
+    {"time": 101.0, "vehicle": "A"}
+  ],
+  "departures": [
+    {"time": 110.0, "vehicle": "A"}
+  ],
+  "incidents": [
+    {"id": "T1", "start": 80.0, "end": 130.0, "vehicle": "A", "description": "staged: stranger walks up, gets in, drives off"}
+  ]
+}

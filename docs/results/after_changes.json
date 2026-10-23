@@ -1,0 +1,114 @@
+[
+  {
+    "name": "walk_past_x3",
+    "suspicious": false,
+    "events": {
+      "vehicle_parked": 1
+    },
+    "alert_levels": [],
+    "max_level": "INFORMATIONAL",
+    "passed": true,
+    "expectation": "no alert"
+  },
+  {
+    "name": "occlusion_behind_car",
+    "suspicious": false,
+    "events": {
+      "vehicle_parked": 1
+    },
+    "alert_levels": [],
+    "max_level": "INFORMATIONAL",
+    "passed": true,
+    "expectation": "no alert"
+  },
+  {
+    "name": "parked_car_box_jitter",
+    "suspicious": false,
+    "events": {
+      "vehicle_parked": 1
+    },
+    "alert_levels": [],
+    "max_level": "INFORMATIONAL",
+    "passed": true,
+    "expectation": "no alert"
+  },
+  {
+    "name": "driver_exits_and_leaves",
+    "suspicious": false,
+    "events": {
+      "vehicle_parked": 1,
+      "person_exited_vehicle": 2,
+      "proximity": 1
+    },
+    "alert_levels": [],
+    "max_level": "INFORMATIONAL",
+    "passed": true,
+    "expectation": "no alert"
+  },
+  {
+    "name": "owner_returns_reid_match",
+    "suspicious": false,
+    "events": {
+      "vehicle_parked": 1,
+      "person_exited_vehicle": 1,
+      "apparent_entry": 1,
+      "vehicle_moved": 1,
+      "vehicle_departed": 1
+    },
+    "alert_levels": [],
+    "max_level": "INFORMATIONAL",
+    "passed": true,
+    "expectation": "max LOW"
+  },
+  {
+    "name": "owner_returns_reid_unsure",
+    "suspicious": false,
+    "events": {
+      "vehicle_parked": 1,
+      "person_exited_vehicle": 1,
+      "apparent_entry": 1,
+      "vehicle_moved": 1,
+      "vehicle_departed": 1
+    },
+    "alert_levels": [
+      "LOW"
+    ],
+    "max_level": "LOW",
+    "passed": true,
+    "expectation": "max MEDIUM"
+  },
+  {
+    "name": "theft",
+    "suspicious": true,
+    "events": {
+      "vehicle_parked": 1,
+      "proximity": 1,
+      "apparent_entry": 1,
+      "vehicle_moved": 1,
+      "vehicle_departed": 1
+    },
+    "alert_levels": [
+      "LOW",
+      "MEDIUM",
+      "HIGH"
+    ],
+    "max_level": "HIGH",
+    "passed": true,
+    "expectation": "alert >= MEDIUM"
+  },
+  {
+    "name": "loitering",
+    "suspicious": true,
+    "events": {
+      "vehicle_parked": 1,
+      "proximity": 1,
+      "extended_presence": 1
+    },
+    "alert_levels": [
+      "LOW"
+    ],
+    "max_level": "LOW",
+    "passed": true,
+    "expectation": "alert >= LOW"
+  }
+]

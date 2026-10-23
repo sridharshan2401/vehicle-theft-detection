@@ -1,0 +1,50 @@
+# Python / tools
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.vscode/*
+!.vscode/launch.json
+!.vscode/settings.json
+
+# Model weights and downloaded models (fetch with scripts/download_models.py).
+# Weights carry their own licences (YOLO11: AGPL-3.0; SegFormer clothes: "other"), so they
+# are never committed, wherever they end up.
+models/*
+!models/README.md
+*.pt
+*.pth
+*.safetensors
+*.onnx
+*.engine
+*.bin
+
+# Footage, registry embeddings and evidence can contain personal data
+data/*
+!data/README.md
+evidence/*
+!evidence/.gitkeep
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.sqlite3
+*.npz
+*.npy
+
+# Local settings and secrets
+.env
+.env.*
+!.env.example
+configs/zones.json
+*.log
+
+# Editors / OS
+.idea/
+Thumbs.db
+.DS_Store
+desktop.ini

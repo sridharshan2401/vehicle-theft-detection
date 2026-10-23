@@ -1,0 +1,16 @@
+# Install the GPU build of PyTorch FIRST (requirements-gpu.txt), otherwise
+# Ultralytics pulls the CPU-only build from PyPI.
+#
+# Versions below are what this project was tested with (Python 3.12.10, Windows 11).
+ultralytics==8.4.184
+opencv-python==4.14.0.94
+numpy==2.5.2; python_version >= "3.12"
+numpy>=2.0,<2.5; python_version < "3.12"   # numpy 2.5 needs Python 3.12+; untested on 3.11
+PyYAML==6.0.3
+lap==0.5.13
+# clothing segmentation (SegFormer) - optional, but installed by default
+transformers==5.20.2
+huggingface_hub==2.2.0
+safetensors==0.8.0
+# tests
+pytest==9.1.1

@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run app (file picker)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.main",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run app on sample video (complete mode)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.main",
+      "args": ["--video", "data/samples/person-bicycle-car-detection.mp4", "--mode", "complete"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Zone editor",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.zone_editor",
+      "args": ["--video", "data/samples/person-bicycle-car-detection.mp4"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}
