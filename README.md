@@ -258,9 +258,14 @@ owner returning, theft…) through the rules. It is a regression check, not an a
 Planned next steps are in [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md#future-work).
 Privacy notes: [docs/LIMITATIONS_AND_PRIVACY.md](docs/LIMITATIONS_AND_PRIVACY.md).
 
-## Licence note
+## Licence
 
-The detector is Ultralytics YOLO11 (AGPL-3.0). If you distribute this project you
-must follow AGPL terms or get an Ultralytics commercial licence. The clothing model
-and the datasets behind the pretrained weights have their own terms; see
-[docs/MODEL_REQUIREMENTS.md](docs/MODEL_REQUIREMENTS.md).
+This project's code is released under the **GNU Affero General Public License v3.0**
+([LICENSE](LICENSE)), because it is built on Ultralytics YOLO11, which is AGPL-3.0. If you
+modify it and distribute it, or let others use it over a network, you must make your source
+available under the same licence (or obtain an Ultralytics commercial licence).
+
+The licence covers this repository's code and documentation only. The model weights are not
+included and keep their own terms (YOLO11: AGPL-3.0; SegFormer clothing model: "other"; ImageNet
+and ReID datasets: research use), as does the Intel sample video (CC BY 4.0) that the example
+screenshots come from. See [docs/MODEL_REQUIREMENTS.md](docs/MODEL_REQUIREMENTS.md).

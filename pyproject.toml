@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Prototype that analyses prerecorded parking videos for suspicious vehicle interactions"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
-license = { text = "AGPL-3.0-only (because it uses Ultralytics YOLO)" }
+license = { file = "LICENSE" }  # GNU AGPL-3.0, required by the Ultralytics YOLO dependency
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
