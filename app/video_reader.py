@@ -34,11 +34,15 @@ class VideoInfo:
     frame_count: int | None
     duration: float | None
     fourcc: str
+    live: bool = False  # a camera feed: no end, timestamps are wall-clock seconds since capture started
 
     def as_dict(self) -> dict:
         return asdict(self)
 
     def describe(self) -> str:
+        if self.live:
+            fps_note = "" if self.fps_reported else " (not reported by the driver)"
+            return f"{self.path}: {self.width}x{self.height}, {self.fps:.1f} FPS{fps_note}, live feed, format {self.fourcc or '?'}"
         dur = f"{self.duration:.1f}s" if self.duration else "unknown"
         frames = self.frame_count if self.frame_count else "unknown"
         fps_note = "" if self.fps_reported else f" (not reported, assuming {DEFAULT_FPS:g})"

@@ -3,11 +3,23 @@
 # Paths are relative to the project folder.
 
 app:
-  mode: responsive          # responsive = smooth preview, may skip frames
-                            # complete   = analyse every frame, takes as long as it takes
+  source: camera            # camera = live webcam (default); video = prerecorded file (--video picks this)
+  mode: responsive          # video files only:
+                            #   responsive = smooth preview, may skip frames
+                            #   complete   = analyse every frame, takes as long as it takes
   display: true
   display_max_width: 1280   # the window is scaled down to this width
   log_level: INFO
+
+camera:
+  index: 0                  # 0 = built-in webcam; 1, 2... = other cameras (or use --camera N)
+  width: 1280               # requested resolution; the driver may pick the nearest it supports
+  height: 720
+  fps: 30
+  backend: auto             # auto | dshow | msmf | any
+  queue_size: 2             # small = low latency; older frames are dropped when analysis is busy
+  save_annotated_video: false   # live preview does not record the feed (--record turns it on)
+  save_alert_clips: false       # MEDIUM+ alerts always save a snapshot; clips only with --alert-clips
 
 device:
   device: auto              # auto | cpu | cuda | cuda:0

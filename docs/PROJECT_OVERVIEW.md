@@ -59,8 +59,11 @@ to end; **Needs model/data** = works only after extra setup; **Planned** = not b
 
 | Feature | Status | Evidence |
 |---|---|---|
+| Live webcam input (default launch, camera index, failure messages, release) | Tested with a fake camera; manually tested on the built-in webcam (detection + tracking of people, no recording, clean release) | `test_camera.py`; TESTING.md "Live webcam manual test" |
+| Live risk alerts | Tested on a synthetic camera feed only (no vehicle was in front of the real webcam) | `test_live_pipeline_raises_explainable_alerts_without_recording` |
+| Stolen-vehicle verification (plate reading + authorised database) | **Not implemented**; the window states it | — |
 | Video probing, missing/invalid file errors | Tested | `test_video_pipeline.py` |
-| File picker when no `--video` | Implemented, not tested | needs a person to click |
+| File picker with `--pick-video` | Implemented, not tested | needs a person to click |
 | YOLO11-seg detection + instance masks on GPU | Tested | smoke tests + 647-frame real run |
 | FP16 with FP32 cross-check | Tested | `verify_half_precision`, smoke test |
 | ByteTrack tracking, separate namespaces, reset on large gaps | Tested | unit tests + real run |
@@ -93,7 +96,12 @@ to end; **Needs model/data** = works only after extra setup; **Planned** = not b
 * Install and evaluate OSNet ReID; tune thresholds on real returning-person cases.
 * Use the vehicle's own mask for door positions instead of box geometry.
 * Ground-plane calibration (homography) so distances are in metres.
-* Number-plate recognition to link vehicles across sessions without zones.
+* Number-plate recognition to link vehicles across sessions without zones; for India this
+  needs a plate detector/OCR trained on Indian plates (including two-wheeler and two-line
+  plates). Checking a plate against a stolen-vehicle list would additionally need lawful
+  access to an authorised data source; nothing like that is part of this project.
+* Validate on Indian street and parking footage (two-wheelers, dense scenes, night, rain)
+  and fine-tune if the measured recall is poor.
 * Multi-camera support with camera-to-camera ReID.
 * A small review UI for confirming/rejecting associations and alerts.
 * TensorRT export of the detector, after checking mask output matches PyTorch.

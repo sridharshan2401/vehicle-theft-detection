@@ -21,9 +21,9 @@ python -m pytest tests\test_risk_engine.py -v
 
 ## Automated test results
 
-Run on 2026-10-23 from `E:\vehicle-theft-detection`, Windows 11, Python 3.12.10, RTX 5050 Laptop GPU:
-**101 passed, 0 failed, 0 skipped.** (70 in the first round; 31 added with the evaluation harness
-and false-positive work, see the end of the table.)
+Run on 2026-10-24 from `E:\vehicle-theft-detection`, Windows 11, Python 3.12.10, RTX 5050 Laptop GPU:
+**122 passed, 0 failed, 0 skipped.** (70 in the first round; 31 added with the evaluation harness
+and false-positive work; 21 added with live camera mode, see the end of the table.)
 
 | File | Tests | Covers |
 |---|---|---|
@@ -37,6 +37,7 @@ and false-positive work, see the end of the table.)
 | `test_evaluation.py` | 8 | Wilson intervals, label validation, exit outcomes (correct / wrong vehicle / ambiguous / missed / false link), event matching needs time **and** place, incident recall + latency + false alerts per hour, pooling, tolerance; **end-to-end: synthetic theft video → pipeline → SQLite → evaluator** |
 | `test_behavior.py` | 7 | walking past ≠ proximity, lingering ≥ 1.5 s = proximity, proximity held while exit association pending, apparent entry withdrawn on re-appearance / confirmed after 3 s / confirmed at once by vehicle movement, passer-by from elsewhere does not withdraw it |
 | `test_scenarios.py` | 9 | the 8 scripted scenarios meet their pre-written expectations; unsure-owner scenario ranks below theft |
+| `test_camera.py` | 21 | with a fake `VideoCapture` (no webcam needed): open reports a live feed and requests the configured resolution, camera index passed through, unavailable camera → actionable error after trying DirectShow / Media Foundation / any, busy camera that opens but sends nothing → timeout error and every attempt released, black start-up frames skipped, backend fallback, idempotent release, camera settings validated; reader keeps the newest frames and counts drops, clock-based timestamps, disconnect after N failed reads, no reading while paused; **full live pipeline on the synthetic theft scene → MEDIUM+ alert with snapshot, no clip, no recording, cautious wording, camera released**, clips/recording opt-in, camera disconnect → `Camera failed` + release, analysis crash → release, setup failure → release, live forces responsive; default launch opens camera 0 (`--camera 3` → index 3) and returns exit code 5 when unavailable, `--video` still selects a file, `--resolution` parsing |
 | (additions to existing files) | 7 | 4 movement-confirmation tests (occlusion shrink, brief shift, 1 s confirmation, vanish while starting to move); 3 identity tests (possible-match factor, worst entrant decides, pipeline resolver with a real gallery) |
 
 The 2-second pause at the car door was added to the synthetic theft video when lingering
@@ -53,6 +54,27 @@ scene that changed, not the assertion.
   causing 15–16 skipped frames at the start of every responsive run. Warm-up now runs on
   the worker thread with the real frame shape: 0 skipped frames on the same clip.
 * HUD covered labels of people near the top edge; label placement now avoids it.
+
+## Live webcam manual test (2026-10-24)
+
+The built-in webcam of the development laptop was available and used. No camera images were
+viewed or saved during these checks; results come from the session statistics. The laptop was
+**on battery** (55 %, Balanced plan, GPU at 600 of 3,090 MHz), so speeds are lower than plugged in.
+
+| Check | Result |
+|---|---|
+| Default launch opens the webcam | `python -m app.main` opened `camera:0` via DirectShow, 1280×720, YUY2, driver 30 FPS; no `--video` needed |
+| Headless run, 300 frames | read 300, analysed 231, dropped 69 (newest-frame policy), balanced; 17.4 FPS average analysed (≈20 FPS after warm-up); detector 31 ms, whole frame 52 ms |
+| People detected and tracked live | 2 person tracks got clothing results, 1 ReID identity decision |
+| Window run, 450 frames | camera delivered 450 frames in 15.5 s (≈29 FPS); analysed 364 at 23.5 FPS average, all 364 shown, 0 display drops; whole frame 41 ms |
+| No recording | session folders contain only `session.json` and empty `snapshots/` and `clips/`; no `annotated.mp4` |
+| Clean exit | camera released at the end of both runs (`released: True`), exit code 0 |
+| Risk alerts live | **not exercised**: no vehicle was in view, so no vehicle events and risk stayed at none. Alerts in live mode are covered by the synthetic-camera test only. |
+| Pause / snapshot / overlay keys in the live window | not pressed during the manual run; the same key handling is covered by `test_keyboard_controls_and_quit` (video path) |
+
+Regression checks of the video tools after this change: `--video` complete run 647/647 frames
+balanced, `scripts/benchmark_video.py` ran, `scripts/run_scenarios.py` unchanged (1/6 benign
+with any alert, 0/6 ≥ MEDIUM, 2/2 suspicious detected), evaluation tests pass.
 
 ## Real-video smoke test
 

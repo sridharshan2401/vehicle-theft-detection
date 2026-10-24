@@ -20,6 +20,8 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "settings.yaml"
 
 RISK_LEVELS = ["INFORMATIONAL", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
 MODES = ["responsive", "complete"]
+SOURCES = ["camera", "video"]
+CAMERA_BACKENDS = ["auto", "dshow", "msmf", "any"]
 
 
 class ConfigError(ValueError):
@@ -28,11 +30,26 @@ class ConfigError(ValueError):
 
 @dataclass
 class AppConfig:
-    mode: str = "responsive"
+    source: str = "camera"  # camera (live webcam, the default) | video (prerecorded file via --video)
+    mode: str = "responsive"  # video files only; the live camera always runs responsive
     display: bool = True
     window_name: str = "Vehicle Theft Detection"
     display_max_width: int = 1280
     log_level: str = "INFO"
+
+
+@dataclass
+class CameraConfig:
+    index: int = 0  # 0 = default laptop webcam; 1, 2... for other connected cameras
+    width: int = 1280  # requested resolution; 0 keeps the driver default
+    height: int = 720
+    fps: float = 30.0  # requested frame rate; 0 keeps the driver default
+    backend: str = "auto"  # auto | dshow | msmf | any  (auto tries DirectShow, then Media Foundation on Windows)
+    open_timeout_seconds: float = 10.0  # how long to wait for the first frame
+    max_failed_reads: int = 50  # consecutive failed reads before the camera counts as disconnected
+    queue_size: int = 2  # frames waiting for analysis; small keeps latency low (older frames are dropped)
+    save_annotated_video: bool = False  # live mode never records the full feed unless this is turned on
+    save_alert_clips: bool = False  # short pre/post clips for MEDIUM+ alerts (snapshots are always saved)
 
 
 @dataclass
@@ -230,6 +247,7 @@ class PrivacyConfig:
 @dataclass
 class Settings:
     app: AppConfig = field(default_factory=AppConfig)
+    camera: CameraConfig = field(default_factory=CameraConfig)
     device: DeviceConfig = field(default_factory=DeviceConfig)
     detector: DetectorConfig = field(default_factory=DetectorConfig)
     tracker: TrackerConfig = field(default_factory=TrackerConfig)
@@ -319,8 +337,18 @@ def validate(s: Settings) -> Settings:
         if not cond:
             errors.append(msg)
 
+    check(s.app.source in SOURCES, f"app.source must be one of {SOURCES}")
     check(s.app.mode in MODES, f"app.mode must be one of {MODES}")
     check(s.app.display_max_width >= 320, "app.display_max_width must be >= 320")
+    c = s.camera
+    check(c.index >= 0, "camera.index must be >= 0")
+    check(c.width == 0 or 160 <= c.width <= 7680, "camera.width must be 0 (driver default) or 160..7680")
+    check(c.height == 0 or 120 <= c.height <= 4320, "camera.height must be 0 (driver default) or 120..4320")
+    check(c.fps == 0 or 1 <= c.fps <= 240, "camera.fps must be 0 (driver default) or 1..240")
+    check(c.backend in CAMERA_BACKENDS, f"camera.backend must be one of {CAMERA_BACKENDS}")
+    check(c.open_timeout_seconds > 0, "camera.open_timeout_seconds must be > 0")
+    check(c.max_failed_reads >= 1, "camera.max_failed_reads must be >= 1")
+    check(c.queue_size >= 1, "camera.queue_size must be >= 1")
     check(s.device.half in ("auto", "on", "off"), "device.half must be auto, on or off")
     check(
         s.device.device == "auto" or s.device.device == "cpu" or s.device.device.startswith("cuda"),

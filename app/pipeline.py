@@ -1,8 +1,14 @@
 """The processing pipeline: reader thread -> analysis worker thread -> display (main thread).
 
-    VideoReader --(bounded FrameQueue)--> analysis worker --(bounded queue)--> window / headless
-                                               |
-                                               +--> SecondaryAnalyzer thread (ReID + clothing)
+    CameraReader (live webcam, default)
+      or VideoReader (file)  --(bounded FrameQueue)--> analysis worker --(bounded queue)--> window / headless
+                                                             |
+                                                             +--> SecondaryAnalyzer thread (ReID + clothing)
+
+The live camera and a video file go through exactly the same analysis code;
+only the reader, the clock and the output defaults differ (live mode keeps the
+newest frame, never records the full feed unless asked, and saves snapshots
+rather than clips for alerts).
 
 The analysis worker owns all per-frame state (tracker, association, zones,
 behaviour, risk, evidence), so only the queues and the person gallery are
@@ -69,6 +75,7 @@ from app.risk_engine import (
 from app.secondary import CropSelector, SecondaryAnalyzer
 from app.storage import Storage
 from app.tracker import MultiClassTracker, TrackStore
+from app.camera import CameraReader, CameraSource
 from app.video_reader import VideoInfo, VideoReader, probe_video
 
 log = logging.getLogger(__name__)
@@ -86,12 +93,21 @@ class PipelineError(RuntimeError):
 class Pipeline:
     def __init__(self, settings: Settings, info: VideoInfo, device: str, half: bool, *,
                  detector=None, tracker_factory=None, display: bool | None = None,
-                 max_frames: int | None = None, start_frame: int = 0, hardware: dict | None = None):
+                 max_frames: int | None = None, start_frame: int = 0, hardware: dict | None = None,
+                 camera: CameraSource | None = None, clock=None):
         self.s = settings
         self.info = info
         self.device = device
         self.half = half
+        self.live = info.live
+        self.camera = camera
+        self._clock = clock or time.perf_counter
+        if self.live and camera is None:
+            raise ValueError("a live VideoInfo needs the opened CameraSource")
         self.mode = settings.app.mode
+        if self.live and self.mode != "responsive":
+            log.warning("A live camera cannot wait for slow analysis; using responsive mode (newest frame wins).")
+            self.mode = "responsive"
         self.display_enabled = settings.app.display if display is None else display
         self.max_frames = max_frames
         self.start_frame = start_frame
@@ -103,7 +119,7 @@ class Pipeline:
         self.pause_event = threading.Event()
         self._worker_ready = threading.Event()
         self.accounting = FrameAccounting()
-        self.in_queue = FrameQueue(settings.pipeline.input_queue_size)
+        self.in_queue = FrameQueue(settings.camera.queue_size if self.live else settings.pipeline.input_queue_size)
         self.out_queue = FrameQueue(settings.pipeline.output_queue_size)
         self.det_latency = LatencyStat()
         self.frame_latency = LatencyStat()
@@ -137,7 +153,8 @@ class Pipeline:
         self.storage = Storage(resolve_path(s.storage.db_path))
         evidence_root = resolve_path(s.evidence.output_dir)
         purge_old_sessions(evidence_root, s.evidence.retention_days, self.storage)
-        self.session_id = self.storage.create_session(self.info.path, self.mode, self.info.as_dict(), s.to_dict())
+        self.session_id = self.storage.create_session(self.info.path, "live" if self.live else self.mode,
+                                                      self.info.as_dict(), s.to_dict())
         self.paths = SessionPaths.create(evidence_root, self.session_id)
         mapping = getattr(self.detector, "mapping", None)
         groups = sorted(set(mapping.groups.values())) if mapping else [GROUP_VEHICLE, GROUP_PERSON]
@@ -170,9 +187,17 @@ class Pipeline:
         self.clip_fps = clip_fps
         self.clips = ClipRecorder(self.paths.clips, s.evidence.pre_event_seconds, s.evidence.post_event_seconds,
                                   s.evidence.clip_max_width)
-        self.annotated = SafeVideoWriter(self.paths.annotated_video, clip_fps) if s.evidence.save_annotated_video else None
-        self.reader = VideoReader(self.info, self.in_queue, self.mode, self.accounting, self.stop_event,
-                                  self.pause_event, self.max_frames, self.start_frame)
+        # Live mode is a preview: no full recording and no alert clips unless explicitly enabled.
+        # Alert snapshots, the event log and the database work the same in both modes.
+        record = s.camera.save_annotated_video if self.live else s.evidence.save_annotated_video
+        self.clips_enabled = s.camera.save_alert_clips if self.live else True
+        self.annotated = SafeVideoWriter(self.paths.annotated_video, clip_fps) if record else None
+        if self.live:
+            self.reader = CameraReader(self.camera, self.info, self.in_queue, self.accounting, self.stop_event,
+                                       self.pause_event, self.max_frames, self._clock, s.camera.max_failed_reads)
+        else:
+            self.reader = VideoReader(self.info, self.in_queue, self.mode, self.accounting, self.stop_event,
+                                      self.pause_event, self.max_frames, self.start_frame)
         self.display = DisplayWindow(s.app.window_name, s.app.display_max_width) if self.display_enabled else None
         write_json(self.paths.summary, {"session_id": self.session_id, "status": "running",
                                         "video": self.info.as_dict(), "mode": self.mode})
@@ -370,7 +395,8 @@ class Pipeline:
         self.risk.tick(ts)
 
         annotated = self.renderer.render(frame, self._render_context(tracked, untracked, meta, imgsz))
-        self.clips.push(annotated, meta)
+        if self.clips_enabled:
+            self.clips.push(annotated, meta)
         for alert in alerts:
             self._record_alert(alert, annotated, meta)
         if self.annotated is not None and not self.annotated.write(annotated):
@@ -396,7 +422,8 @@ class Pipeline:
                 snapshot = str(snap_path)
             else:
                 self._note_write_error(f"snapshot failed: {snap_path}")
-            clip = str(self.clips.start(alert.vehicle_id, alert.alert_id, meta, self.clip_fps))
+            if self.clips_enabled:
+                clip = str(self.clips.start(alert.vehicle_id, alert.alert_id, meta, self.clip_fps))
         event_id = f"{self.session_id}-{alert.alert_id}"
         self._event_ids[alert.alert_id] = event_id
         reasons = [asdict(r) for r in alert.reasons]
@@ -469,23 +496,55 @@ class Pipeline:
                 labels[d.track_id] = lines
 
         acc = self.accounting.snapshot()
-        total = self.info.frame_count or "?"
-        top = max(((v, *self.risk.current(v, ts)) for v in self.risk.vehicles), key=lambda x: x[1], default=None)
-        hud = [
-            f"{self.mode.upper()} | {self.device}{' FP16' if self.half else ''} | overlay: {self.renderer.mode_name}",
-            f"t={ts:7.2f}s  frame {meta.index}/{total}",
-            f"src {self.info.fps:.1f} FPS | proc {self.proc_rate.rate:.1f} | disp "
-            + (f"{self._display_fps:.1f}" if self.display is not None else "-"),
+        disp = f"{self._display_fps:.1f}" if self.display is not None else "-"
+        if self.live:
+            hud = [
+                f"LIVE {self.info.path} [{self.reader.status}] | {self.device}{' FP16' if self.half else ''}"
+                f" | overlay: {self.renderer.mode_name}",
+                f"camera {self.info.width}x{self.info.height} @ {self.reader.fps_meter.rate:.1f} FPS"
+                f" | analysed {self.proc_rate.rate:.1f} | disp {disp}",
+                f"t={ts:7.1f}s  frame {meta.index}",
+            ]
+        else:
+            hud = [
+                f"{self.mode.upper()} | {self.device}{' FP16' if self.half else ''} | overlay: {self.renderer.mode_name}",
+                f"t={ts:7.2f}s  frame {meta.index}/{self.info.frame_count or '?'}",
+                f"src {self.info.fps:.1f} FPS | proc {self.proc_rate.rate:.1f} | disp {disp}",
+            ]
+        people = sum(d.group == GROUP_PERSON for d in tracked)
+        vehicles = [d for d in tracked if d.group == GROUP_VEHICLE]
+        parked_ids = self.vzt.parked_ids()
+        parked = sum(d.track_id in parked_ids for d in vehicles)
+        hud += [
             f"detector {self.det_latency.ema:.0f} ms @ {imgsz} | ReID {self.secondary.reid_latency.ema:.0f} ms"
             f" | cloth {self.secondary.clothing_latency.ema:.0f} ms",
+            f"in view: {people} people, {len(vehicles)} vehicles ({parked} parked)"
+            + (f" | untracked {len(untracked)}" if untracked else ""),
             f"processed {acc['frames_processed']} | skipped {acc['frames_skipped']} | resets {acc['tracker_resets']}",
             f"ReID: {self.reid_backend.name if self.reid_backend else 'OFF'} | clothing: {self.clothing.mode}",
         ]
-        if top is not None and top[1] > 0:
-            hud.append(f"highest risk: {top[0]} {top[2]} ({top[1]:.0f})")
-        banner = ("RESPONSIVE PREVIEW - frames may be skipped" if self.mode == "responsive"
-                  else "COMPLETE EVIDENCE - every frame analysed")
+        hud += self._risk_lines(ts)
+        if self.live:
+            hud.append("stolen-vehicle check: NOT AVAILABLE (no plate reader / registry)")
+            banner = "LIVE CAMERA - suspicious-behaviour risk only, not proof of theft"
+        elif self.mode == "responsive":
+            banner = "RESPONSIVE PREVIEW - frames may be skipped"
+        else:
+            banner = "COMPLETE EVIDENCE - every frame analysed"
         return RenderContext(tracked + untracked, labels, levels, hud, list(self.event_log), banner, self.zones)
+
+    def _risk_lines(self, ts: float) -> list[str]:
+        """Current highest risk and the strongest recent reason behind it, for the status panel."""
+        top = max(((v, *self.risk.current(v, ts)) for v in self.risk.vehicles), key=lambda x: x[1], default=None)
+        if top is None or top[1] < 1:
+            return ["risk: none (no suspicious behaviour scored)"]
+        vid, score, level = top
+        lines = [f"risk: {level} on {vid} (score {score:.0f}/100)"]
+        recent = [r for r in self.risk.vehicles[vid].reasons if r.points > 0]
+        if recent:
+            why = recent[-1].description
+            lines.append("why: " + (why if len(why) <= 70 else why[:67] + "..."))
+        return lines
 
     def _worker(self) -> None:
         current = None
@@ -529,6 +588,8 @@ class Pipeline:
                 if hasattr(self, "session_id"):
                     self.storage.end_session(self.session_id, {"status": "setup_failed", "error": str(exc)})
                 self.storage.close()
+            if self.camera is not None:
+                self.camera.release()
             raise
         self._t0 = time.perf_counter()
         self._started = True
@@ -550,7 +611,8 @@ class Pipeline:
         if self.worker_error is not None:
             raise PipelineError(f"Analysis failed: {self.worker_error}") from self.worker_error
         if self.reader.error is not None:
-            raise PipelineError(f"Video reading failed: {self.reader.error}") from self.reader.error
+            what = "Camera failed" if self.live else "Video reading failed"
+            raise PipelineError(f"{what}: {self.reader.error}") from self.reader.error
         return summary
 
     def _display_loop(self) -> None:
@@ -643,6 +705,8 @@ class Pipeline:
         self.stop_event.set()
         self.pause_event.clear()
         self.reader.join(5)
+        if self.camera is not None:
+            self.camera.release()  # free the webcam as soon as nothing reads from it
         if worker is not None:
             worker.join(15)
         leftover = [p for p in self.in_queue.drain() if p is not END_OF_STREAM]
@@ -670,7 +734,8 @@ class Pipeline:
             "session_id": self.session_id,
             "status": "error" if self.worker_error or self.reader.error else "finished",
             "video": self.info.as_dict(),
-            "mode": self.mode,
+            "source": self.info.path,
+            "mode": "live" if self.live else self.mode,
             "device": self.device,
             "fp16": self.half,
             "hardware": self.hardware,
@@ -695,6 +760,11 @@ class Pipeline:
             "write_errors": self.write_errors,
             "errors": [str(e) for e in (self.worker_error, self.reader.error) if e],
         }
+        if self.live:
+            summary["camera"] = {"backend": self.camera.backend_used, "released": self.camera.released,
+                                 "failed_reads_at_end": self.reader.failed_reads,
+                                 "annotated_video_saved": self.annotated is not None,
+                                 "alert_clips_saved": self.clips_enabled}
         if self.annotated is not None:
             summary["annotated_video"] = self._verify_video(self.paths.annotated_video, self.annotated.frames)
             if self.mode == "responsive":

@@ -3,13 +3,39 @@
 Assumes setup from the README is done and the virtual environment is active
 (`.\.venv\Scripts\Activate.ps1`).
 
-## 1. Analyse a video
+## 1. Watch the live camera (default)
+
+```powershell
+python -m app.main
+```
+
+The console prints the GPU it found, opens camera 0 and shows what the camera delivers
+(e.g. `camera:0: 1280x720, 30.0 FPS, live feed, format YUY2 via dshow`), loads the models and
+opens the window. No video file is involved.
+
+* Another camera: `python -m app.main --camera 1` (or set `camera.index` in `configs/settings.yaml`).
+  Indexes follow the order Windows lists the devices; 0 is normally the built-in webcam.
+* Resolution: `--resolution 640x480` (lighter) or `1280x720` (default request).
+* Quit with `Q` or `Esc` (or close the window). `Space` pauses: the camera is not read while
+  paused and the last frame stays on screen. `S` saves a snapshot, `R` cycles overlays.
+* The status panel shows `camera:0 [connected]`. `waiting for frames` means nothing arrived
+  for a second; `DISCONNECTED` means the camera stopped and the program is shutting down.
+* Live mode always analyses the newest frame: if analysis is slower than the camera, older
+  frames are dropped and counted as "skipped". That keeps the picture current.
+* Nothing is recorded except alert snapshots and the database. Add `--alert-clips` for short
+  clips around MEDIUM+ alerts or `--record` for the whole annotated feed.
+
+What the risk line means: `risk: MEDIUM on V001 (score 41/100)` with `why: ...` naming the
+strongest recent observation. It is a behaviour score with reasons, not a finding of theft, and
+the panel always states that stolen-vehicle verification is not available.
+
+## 2. Analyse a video file
 
 ```powershell
 python -m app.main --video "C:\videos\carpark_evening.mp4"
 ```
 
-Or `python -m app.main` and pick the file in the dialog. The console prints the video
+Or `python -m app.main --pick-video` and pick the file in the dialog. The console prints the video
 details, the GPU it found and which optional models are active, then the window opens.
 
 Pick the mode for the job:
@@ -37,11 +63,15 @@ Pick the mode for the job:
 
 Keys: `Space` pause, `S` snapshot, `R` change overlays, `Q`/`Esc` quit.
 
-## 2. Draw zones (optional but recommended)
+## 3. Draw zones (optional but recommended)
 
 ```powershell
+python -m app.zone_editor --camera 0
 python -m app.zone_editor --video "C:\videos\carpark_evening.mp4" --frame 300
 ```
+
+With `--camera` one frame is captured and the camera is released at once; mount the camera
+first, because zones only fit the view they were drawn on.
 
 Click the corners of a parking area, press `Enter`, then type the kind (`p` parking,
 `r` restricted, `x` exit, `z` proximity) and a name in the terminal. Repeat, then press
@@ -55,7 +85,7 @@ view is exported at another resolution. Make one zone file per camera view and p
 Without zones, the whole frame is one parking area, and departures are detected only when
 a moving car's track is lost.
 
-## 3. Register vehicles and authorised people (optional)
+## 4. Register vehicles and authorised people (optional)
 
 ```powershell
 python -m app.manage add-vehicle --name "Blue hatchback" --plate KA01AB1234 --zone A1
@@ -71,7 +101,7 @@ python -m app.manage registry
 * Authorisation matching only works with a person-specific ReID model (OSNet); with the
   generic fallback it stays off and the HUD/session summary says so.
 
-## 4. Review results
+## 5. Review results
 
 ```powershell
 python -m app.manage sessions
@@ -99,7 +129,7 @@ precision for entries, movements and departures, incident recall, and false aler
 (`{"items": [{"session": "...", "labels": "..."}]}`) and pass `--manifest`. Change thresholds
 on one set of videos and judge them on another; see docs/VALIDATION.md.
 
-## 5. Tune settings
+## 6. Tune settings
 
 Edit `configs/settings.yaml`. Common changes:
 
@@ -114,7 +144,7 @@ Edit `configs/settings.yaml`. Common changes:
 
 The app refuses to start if a setting is misspelled or out of range and tells you which one.
 
-## 6. Benchmark your machine
+## 7. Benchmark your machine
 
 ```powershell
 python scripts/benchmark_video.py --video "C:\videos\clip.mp4" --mode both

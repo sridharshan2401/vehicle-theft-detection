@@ -78,6 +78,29 @@ In rough order of impact:
 4. `--imgsz 512` (smaller objects get missed sooner)
 5. Lower `pipeline.target_fps` so adaptive resolution does not kick in too early
 
+## Live camera
+
+The live reader never waits for the analysis: the camera is read continuously, at most
+`camera.queue_size` (2) frames wait, and older ones are dropped and counted as skipped, so
+what you see is never more than a couple of frames behind. Only one copy of each model is
+loaded (the detector on the analysis thread, ReID and clothing on the secondary thread).
+
+Measured on 2026-10-24 with the built-in webcam (1280×720 YUY2 over DirectShow, driver 30 FPS),
+YOLO11-S-seg @ 640 FP16, ResNet-50 ReID + SegFormer clothing, **laptop on battery**:
+
+| Run | Camera delivered | Analysed | Dropped | Detector | Whole frame |
+|---|---|---|---|---|---|
+| headless, 300 frames | ≈22.6 FPS (300 in 13.3 s, incl. start) | 17.4 FPS avg (≈20 after warm-up) | 69 | 31 ms | 52 ms |
+| window, 450 frames | ≈29 FPS (450 in 15.5 s) | 23.5 FPS avg, all shown | 86 | 30 ms | 41 ms |
+
+Same-day video-file runs were also slow (29 FPS on the 768×432 sample vs 64 FPS earlier on a
+cool machine), so expect noticeably better live numbers when plugged in. Not measured: a
+plugged-in live run and long live sessions. Start-up (camera open + model load + warm-up) took
+about 14 s.
+
+If the live view lags: plug in, use `--weights models\yolo11n-seg.pt`, `--no-clothing`, or
+`--resolution 960x540` (smaller frames cut decoding and drawing time; the detector input stays 640).
+
 ## Long run and run-to-run variation
 
 * **30-minute stress test** (new behaviour rules included): 21,960 frames at 57.1 FPS average,

@@ -1,17 +1,27 @@
 # Vehicle Theft Detection (prototype)
 
-A desktop tool that watches a **prerecorded** car-park video and flags
-situations worth a human look: someone hanging around a parked car, someone who
-seems to get into it, and the car then driving off. It shows everything in an
-OpenCV window while it works and saves snapshots, short clips and a database of
-what it saw.
+A desktop tool that watches a **live camera** (your laptop webcam by default) and
+flags situations worth a human look: someone hanging around a parked vehicle, someone
+who seems to get into it, and the vehicle then driving off. It shows the live feed with
+detections, tracking IDs and an explained risk level in an OpenCV window. A prerecorded
+video can still be analysed with `--video`.
 
 It is a prototype. It does not prove anything about anyone. It points a person
-at the parts of the footage worth checking.
+at the moments worth checking.
+
+### What it can and cannot tell you
+
+| Level | What it means | Status |
+|---|---|---|
+| 1. Detection | people, cars, motorcycles/scooters, buses, trucks and bicycles in view, with tracking IDs | implemented (COCO-trained YOLO11) |
+| 2. Suspicious behaviour | lingering near a parked vehicle, apparently getting in, the vehicle then moving or leaving, scored with reasons | implemented (rule-based, explainable, **not** validated on real staged footage) |
+| 3. Stolen-vehicle verification | confirming that a specific vehicle is reported stolen | **not implemented**: it would need a reliable vehicle identifier (a number-plate reader, none is included) and access to an authorised stolen-vehicle database (none is connected). The window says so permanently. |
+
+A HIGH alert therefore means "a person should look at this", never "this vehicle was stolen".
 
 ## What it does
 
-1. Reads a video file frame by frame (MP4, AVI, MOV, whatever your OpenCV build decodes).
+1. Reads frames from the webcam (or any camera by index) live, or from a video file.
 2. Runs **YOLO11 instance segmentation** on the GPU: one pass gives a box, a class
    and a pixel mask for every person, car, motorcycle, bus, truck and bicycle.
 3. **Tracks** objects with ByteTrack (or BoT-SORT) and gives them separate IDs:
@@ -26,13 +36,17 @@ at the parts of the footage worth checking.
    optional parking-zone polygons you draw yourself.
 7. Scores **risk per vehicle** with simple, explainable rules (unrecognised person
    near the car, apparent entry, car moving afterwards…) that accumulate and decay over time.
-8. Saves **evidence**: snapshot, a clip with a few seconds before and after,
-   a JSON log, rows in SQLite, and a full annotated copy of the video.
+8. Saves **evidence**: a snapshot for every MEDIUM+ alert, a JSON log and rows in SQLite.
+   For video files it also saves pre/post clips and a full annotated copy; in live camera
+   mode those are off unless you ask for them (`--alert-clips`, `--record`).
 
 ## Main features
 
-* Instance masks, boxes, IDs, "exited V001" association labels and clothing colours drawn on the video
-* Two processing modes: **responsive preview** (keeps up with the video, may skip
+* Live webcam input by default; pick another camera with `--camera N`
+* Instance masks, boxes, IDs, "exited V001" association labels and clothing colours drawn on the feed
+* A status panel with camera status, camera/analysis FPS, people and vehicles in view,
+  current risk level and the reason for it
+* For video files, two processing modes: **responsive preview** (keeps up with the video, may skip
   frames, counts every skip) and **complete evidence** (analyses every frame, takes as long as it needs)
 * Explainable risk levels: INFORMATIONAL, LOW, MEDIUM, HIGH, CRITICAL
 * Local SQLite registry of vehicles and authorised people, kept separate from what the camera observed
@@ -43,7 +57,7 @@ at the parts of the footage worth checking.
 
 ```mermaid
 flowchart LR
-    V[Video file] --> R[VideoReader thread]
+    V[Webcam / camera N<br/>or video file] --> R[CameraReader or<br/>VideoReader thread]
     R -- bounded queue --> W[Analysis worker]
     subgraph W[Analysis worker thread]
         D[YOLO11-seg detector] --> T[ByteTrack / BoT-SORT<br/>V### / P### ids]
@@ -60,7 +74,7 @@ flowchart LR
     X -- identities, clothing --> W
     W -- annotated frames --> UI[OpenCV window]
     E --> DB[(SQLite)]
-    E --> F[snapshots / clips / annotated.mp4]
+    E --> F[snapshots<br/>clips / annotated.mp4 when enabled]
 ```
 
 More detail: [docs/SYSTEM_ARCHITECTURE.md](docs/SYSTEM_ARCHITECTURE.md).
@@ -150,36 +164,81 @@ You want to see `CUDA usable: yes` and the detector listed as `present verified=
 
 ## Running it
 
+### Live webcam (the normal way)
+
+From the project folder, with the virtual environment active:
+
 ```powershell
-python -m app.main --video "C:\path\to\parking_video.mp4"
+python -m app.main
 ```
 
-Run `python -m app.main` with no `--video` and a file picker opens.
+That opens camera 0 (the built-in webcam), loads the models (about 10–15 s the first
+time in a session), and shows the live window. No video file is needed and nothing is
+recorded except alert snapshots and the event database.
 
-Useful options:
+Without activating the environment, use its Python directly (adjust the path if your
+virtual environment lives elsewhere):
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main
+```
 
 | Option | Meaning |
 |---|---|
-| `--mode complete` | analyse every frame (for evidence); default is `responsive` |
-| `--no-display` | no window, just process and save |
+| `--camera 1` | use another connected camera (0 = built-in webcam); also `camera.index` in settings |
+| `--resolution 1280x720` | requested camera resolution (the driver picks the nearest it supports) |
+| `--camera-backend msmf` | force a backend if the default (DirectShow, then Media Foundation) misbehaves |
+| `--alert-clips` | also save short clips around MEDIUM+ alerts (off by default in live mode) |
+| `--record` | also save the whole annotated feed (off by default) |
+| `--no-display` | no window (headless test runs) |
+| `--max-frames 600` | stop after that many camera frames |
+
+What the status panel (top left) shows: camera status (`connected`, `waiting for frames`,
+`paused`, `DISCONNECTED`), camera FPS vs analysed FPS, people and vehicles in view (and how
+many vehicles are parked), detector/ReID/clothing latency, processed and skipped frames,
+the highest current risk with the reason for it, and a permanent line saying stolen-vehicle
+verification is not available. Recent events and alerts appear bottom left.
+
+To see the risk logic do anything, a vehicle has to be in view and stay still for 3 s, then a
+person has to linger next to it, overlap it and leave the view, and finally the vehicle has to
+move. Pointing the laptop at a desk, you will normally only see people being detected and
+tracked; risk stays at "none". (Whether a toy car or a car shown on another screen is detected
+well enough to try this indoors has not been tested.)
+
+If the camera cannot be opened the program exits with code 5 and says what to check
+(another app using the camera, Windows camera privacy settings, wrong index).
+
+### Prerecorded video (analysis and evaluation)
+
+```powershell
+python -m app.main --video "C:\path\to\parking_video.mp4" --mode complete
+```
+
+`--pick-video` opens a file dialog instead. Video-only options: `--mode responsive|complete`,
+`--start-frame 1200`, `--no-save-video`.
+
+### Common options
+
+| Option | Meaning |
+|---|---|
 | `--zones configs\zones.json` | use a zone file |
 | `--weights models\yolo11n-seg.pt` | faster, smaller detector |
-| `--max-frames 500` / `--start-frame 1200` | process part of a video |
 | `--no-reid` / `--no-clothing` | turn the secondary models off |
 | `--device cpu` | force CPU |
 
 Optional: draw parking, restricted and exit zones once per camera view:
 
 ```powershell
+python -m app.zone_editor --camera 0
 python -m app.zone_editor --video "C:\path\to\parking_video.mp4"
 ```
 
-### Keyboard controls (in the video window)
+### Keyboard controls (in the window)
 
 | Key | Action |
 |---|---|
-| `Q` or `Esc` | quit (closing the window also quits) |
-| `Space` | pause / resume |
+| `Q` or `Esc` | quit safely (closing the window also quits); the camera is released |
+| `Space` | pause / resume (the camera is not read while paused) |
 | `S` | save a snapshot of the current frame |
 | `R` | cycle overlays: full → boxes only → masks only → minimal |
 
@@ -189,13 +248,15 @@ python -m app.zone_editor --video "C:\path\to\parking_video.mp4"
 evidence/
   vtd.sqlite3                    all sessions, events, associations, registry
   <session-id>/
-    session.json                 video info, settings, final stats, frame accounting
+    session.json                 source info, settings, final stats, frame accounting
     events.jsonl                 one line per alert
-    annotated.mp4                annotated copy of the video (the source is never touched)
+    annotated.mp4                annotated copy (video files; live camera only with --record)
     snapshots/                   alert and manual snapshots (JPEG)
-    clips/                       pre/post-event clips (MP4)
+    clips/                       pre/post-event clips (video files; live camera only with --alert-clips)
     profiles_<backend>.npz       appearance embeddings (if enabled in settings)
 ```
+
+Live sessions are stored with source `camera:N` and mode `live`.
 
 Browse results with `python -m app.manage sessions`, `events --session <id>` and
 `associations`. See [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
@@ -206,9 +267,10 @@ Browse results with `python -m app.manage sessions`, `events --session <id>` and
 python -m pytest
 ```
 
-101 tests, all passing on the machine above. Most use synthetic videos, scripted tracks and
-simple stand-in detectors, so they test the software logic, not model accuracy. A few
-smoke tests use the real downloaded models and are skipped if the weights are missing.
+122 tests, all passing on the machine above. Most use synthetic videos, scripted tracks,
+a fake camera and simple stand-in detectors, so they test the software logic, not model
+accuracy, and no webcam is needed. A few smoke tests use the real downloaded models and are
+skipped if the weights are missing.
 Details and real measurements: [docs/TESTING.md](docs/TESTING.md), [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ### Measuring accuracy on your own footage
@@ -241,6 +303,9 @@ owner returning, theft…) through the rules. It is a regression check, not an a
 | Many skipped frames in responsive mode | Expected when the GPU is slower than the video. Use `--mode complete`, `--weights models\yolo11n-seg.pt`, or `--no-clothing`. |
 | `out of memory` on a 4 GB card | Use `yolo11n-seg.pt`, `--imgsz 512`, or `--no-clothing`. |
 | PowerShell blocks `Activate.ps1` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
+| `Camera 0 could not be used` | Close other apps using the camera (Camera, Teams, Zoom, browser tabs); check Windows Settings > Privacy & security > Camera > "Let desktop apps access your camera"; check the privacy shutter / camera key; try `--camera 1`. |
+| Camera opens but shows `waiting for frames` or `stopped delivering frames` | Try `--camera-backend msmf`, a lower `--resolution 640x480`, or replug a USB camera. |
+| Live view feels behind | It always analyses the newest frame; if the analysed FPS is low, try `--weights models\yolo11n-seg.pt`, `--no-clothing` or `--resolution 960x540`, and plug the laptop in (on battery the GPU runs much slower). |
 
 ## Limitations
 
@@ -251,7 +316,12 @@ owner returning, theft…) through the rules. It is a regression check, not an a
 * The default ReID backend here is a generic ImageNet ResNet-50, not a trained
   person-ReID model, so reconnections are conservative and authorisation matching is
   off until OSNet is installed.
-* There is no number-plate reading. A registered vehicle is linked to the parking zone it normally uses.
+* There is no number-plate reading and no stolen-vehicle database, so the system cannot say
+  that a vehicle is stolen. A registered vehicle is linked to the parking zone it normally uses.
+* Scooters are detected as `motorcycle` (COCO has no scooter class). Crowded Indian streets,
+  night scenes and Indian number plates have **not** been tested.
+* With a webcam close to people, person crops often touch the frame edge and are skipped for
+  ReID/clothing, so those columns may stay empty in desk tests.
 * Association and alert accuracy have **not** been measured on real staged footage yet. The tool
   to measure them exists; the labelled footage does not (see docs/VALIDATION.md).
 

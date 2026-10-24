@@ -2,10 +2,19 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run app (file picker)",
+      "name": "Run app on live webcam (camera 0)",
       "type": "debugpy",
       "request": "launch",
       "module": "app.main",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run app on a video file (file picker)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.main",
+      "args": ["--pick-video"],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
     },

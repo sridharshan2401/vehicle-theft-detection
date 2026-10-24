@@ -1,6 +1,10 @@
-"""Draw parking / restricted / exit zones over a frame of the video.
+"""Draw parking / restricted / exit zones over a frame of the camera or a video.
 
+    python -m app.zone_editor --camera 0 [--out configs/zones.json]
     python -m app.zone_editor --video "C:\\videos\\lot.mp4" [--frame 120] [--out configs/zones.json]
+
+With --camera, one frame is captured and the camera is released straight away;
+point the camera where it will stay, because zones are tied to the view.
 
 Left click      add a point
 Enter / right   finish the current polygon (name and kind are asked in the terminal)
@@ -53,17 +57,34 @@ def ask_zone_details(existing: set[str]) -> tuple[str, str] | None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m app.zone_editor")
-    ap.add_argument("--video", required=True)
-    ap.add_argument("--frame", type=int, default=0, help="frame to draw on")
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--camera", type=int, metavar="N", help="capture one frame from camera N")
+    src.add_argument("--video", help="draw on a frame of this video")
+    ap.add_argument("--frame", type=int, default=0, help="video frame to draw on")
     ap.add_argument("--out", help="zone file (default: zones.file from settings)")
     args = ap.parse_args(argv)
 
-    try:
-        info = probe_video(args.video)
-        frame = read_frame(info.path, args.frame)
-    except VideoError as exc:
-        print(f"error: {exc}")
-        return 2
+    if args.camera is not None:
+        from dataclasses import replace
+
+        from app.camera import CameraError, CameraSource
+
+        cam = CameraSource(replace(load_config().camera, index=args.camera))
+        try:
+            cam.open()
+            frame = cam.first_frame
+        except CameraError as exc:
+            print(f"error: {exc}")
+            return 5
+        finally:
+            cam.release()
+    else:
+        try:
+            info = probe_video(args.video)
+            frame = read_frame(info.path, args.frame)
+        except VideoError as exc:
+            print(f"error: {exc}")
+            return 2
     out = resolve_path(args.out) if args.out else resolve_path(load_config().zones.file)
     try:
         zones = ZoneSet.load(out)
