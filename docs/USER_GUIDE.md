@@ -6,12 +6,15 @@ Assumes setup from the README is done and the virtual environment is active
 ## 1. Watch the live camera (default)
 
 ```powershell
-python -m app.main
+python -m app.main                                   # from the project folder, environment active
+C:\path\to\venv\Scripts\python.exe run_webcam.py     # from anywhere, no activation needed
 ```
 
-The console prints the GPU it found, opens camera 0 and shows what the camera delivers
-(e.g. `camera:0: 1280x720, 30.0 FPS, live feed, format YUY2 via dshow`), loads the models and
-opens the window. No video file is involved.
+The console prints which Python is running, the GPU it found, opens camera 0 and shows what the
+camera delivers (e.g. `camera:0: 1280x720, 30.0 FPS, live feed, format YUY2 via dshow`). The window
+opens straight away with the raw camera picture and "Loading AI models...", and switches to the
+analysed view once the models are loaded and warmed up (10–20 s). No video file is involved.
+If it prints `WARNING: no usable CUDA GPU`, you started it with the wrong Python.
 
 * Another camera: `python -m app.main --camera 1` (or set `camera.index` in `configs/settings.yaml`).
   Indexes follow the order Windows lists the devices; 0 is normally the built-in webcam.

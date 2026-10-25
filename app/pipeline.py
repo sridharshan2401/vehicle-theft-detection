@@ -31,7 +31,7 @@ from app.behavior import BehaviorAnalyzer
 from app.clothing_analyzer import ClothingAnalyzer
 from app.config import RISK_LEVELS, Settings, resolve_path
 from app.datatypes import GROUP_PERSON, GROUP_VEHICLE, Event, EventKind, FrameMeta, FramePacket
-from app.display import DisplayWindow, RenderContext, Renderer
+from app.display import DisplayWindow, RenderContext, Renderer, render_status
 from app.evidence import (
     ClipRecorder,
     SafeVideoWriter,
@@ -94,8 +94,13 @@ class Pipeline:
     def __init__(self, settings: Settings, info: VideoInfo, device: str, half: bool, *,
                  detector=None, tracker_factory=None, display: bool | None = None,
                  max_frames: int | None = None, start_frame: int = 0, hardware: dict | None = None,
-                 camera: CameraSource | None = None, clock=None):
+                 camera: CameraSource | None = None, clock=None, window=None):
         self.s = settings
+        self._window = window  # a ready-made window object (tests); otherwise an OpenCV DisplayWindow
+        self.display = None
+        self._quit_requested = False
+        self._status_frame: np.ndarray | None = None
+        self._startup_frames = 0  # start-up screens shown before analysis began
         self.info = info
         self.device = device
         self.half = half
@@ -198,7 +203,6 @@ class Pipeline:
         else:
             self.reader = VideoReader(self.info, self.in_queue, self.mode, self.accounting, self.stop_event,
                                       self.pause_event, self.max_frames, self.start_frame)
-        self.display = DisplayWindow(s.app.window_name, s.app.display_max_width) if self.display_enabled else None
         write_json(self.paths.summary, {"session_id": self.session_id, "status": "running",
                                         "video": self.info.as_dict(), "mode": self.mode})
 
@@ -581,8 +585,12 @@ class Pipeline:
 
     # ------------------------------------------------------------------- run
     def run(self) -> dict:
+        if self.display_enabled:
+            # Open the window first so something (the live camera, in live mode) is visible
+            # while the models load, instead of a silent 10-20 s wait.
+            self.display = self._window or DisplayWindow(self.s.app.window_name, self.s.app.display_max_width)
         try:
-            self.setup()
+            self._setup_showing_status()
         except Exception as exc:
             if hasattr(self, "storage"):
                 if hasattr(self, "session_id"):
@@ -590,20 +598,31 @@ class Pipeline:
                 self.storage.close()
             if self.camera is not None:
                 self.camera.release()
+            if self.display is not None:
+                self.display.close()
             raise
         self._t0 = time.perf_counter()
         self._started = True
         worker = threading.Thread(target=self._worker, name="analysis-worker", daemon=True)
         try:
-            self.secondary.start()
-            worker.start()
-            self._worker_ready.wait()  # start the video clock only once the detector is warm
-            self._t0 = time.perf_counter()
-            self.reader.start()
-            if self.display is not None:
-                self._display_loop()
+            if self._quit_requested:
+                log.info("Quit requested during start-up; nothing was analysed")
+                worker = None
             else:
-                self._headless_wait(worker)
+                self.secondary.start()
+                worker.start()
+                # Start the clock only once the detector is warm; keep the window alive meanwhile.
+                while not self._worker_ready.wait(0.03):
+                    if not self._show_status("Warming up the GPU..."):
+                        self._quit_requested = True
+                        self.stop_event.set()
+                if not self._quit_requested:
+                    self._t0 = time.perf_counter()
+                    self.reader.start()
+                    if self.display is not None:
+                        self._display_loop()
+                    else:
+                        self._headless_wait(worker)
         except KeyboardInterrupt:
             log.info("Interrupted; shutting down")
         finally:
@@ -614,6 +633,60 @@ class Pipeline:
             what = "Camera failed" if self.live else "Video reading failed"
             raise PipelineError(f"{what}: {self.reader.error}") from self.reader.error
         return summary
+
+    def _setup_showing_status(self) -> None:
+        """Run setup (model loading) on a helper thread while the window shows a start-up screen."""
+        if self.display is None:
+            self.setup()
+            return
+        result: dict = {}
+
+        def target():
+            try:
+                self.setup()
+            except BaseException as exc:
+                result["error"] = exc
+
+        t = threading.Thread(target=target, name="setup", daemon=True)
+        t.start()
+        while t.is_alive():
+            if not self._show_status("Loading AI models (the first start takes 10-20 s)..."):
+                self._quit_requested = True  # honoured once loading finishes; it cannot be interrupted
+            t.join(0.03)
+        if "error" in result:
+            raise result["error"]
+
+    def _show_status(self, text: str) -> bool:
+        """Draw one start-up frame. Returns False if the user asked to quit.
+
+        In live mode this reads the camera directly (the reader thread has not started yet),
+        so the real camera picture is visible from the first second. These preview frames are
+        not analysed and not counted as source frames.
+        """
+        if self.display is None:
+            return True
+        if self.live and self.camera is not None and not self.camera.released:
+            ok, frame = self.camera.read()
+            if ok and frame is not None:
+                self._status_frame = frame
+        base = self._status_frame
+        if base is None and self.live and self.camera is not None:
+            base = self.camera.first_frame
+        if base is None:
+            base = np.zeros((self.info.height, self.info.width, 3), np.uint8)
+        if self.live:
+            lines = [f"LIVE CAMERA {self.info.path} - starting", text,
+                     "Raw camera picture: boxes, IDs and risk appear when analysis starts.",
+                     "Q / Esc / close window: quit"]
+        else:
+            lines = [f"VIDEO FILE {Path(self.info.path).name} - starting", text, "Q / Esc / close window: quit"]
+        if self._quit_requested:
+            lines[1] = "Quitting as soon as loading finishes..."
+        self.display.show_status(render_status(base, lines))
+        if self._startup_frames == 0:
+            log.info("Window open: showing the %s while the models load", "live camera" if self.live else "start-up screen")
+        self._startup_frames += 1
+        return not self.display.poll_quit(1)
 
     def _display_loop(self) -> None:
         while True:
@@ -694,6 +767,7 @@ class Pipeline:
             duplicate_tracks_removed=self.tracker.duplicates_removed,
             risk_events_suppressed_by_cooldown=self.risk.suppressed,
             apparent_entries_withdrawn=len(self.behavior.retracted_entries),
+            startup_frames_shown=self._startup_frames,
             gpu_memory=gpu_memory_mb(self.device),
             final_imgsz=self.adaptive.size if self.adaptive else self.s.detector.imgsz,
         )

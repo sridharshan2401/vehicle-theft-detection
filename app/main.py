@@ -69,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     setup_logging(settings.app.log_level)
 
+    print(f"Python: {sys.executable}")
     hw = inspect_hardware()
     print(hw.describe())
     try:
@@ -76,6 +77,10 @@ def main(argv: list[str] | None = None) -> int:
     except DeviceError as exc:
         log.error("%s", exc)
         return 4
+    if device == "cpu" and settings.device.device == "auto":
+        print("WARNING: no usable CUDA GPU in this Python (PyTorch " + (hw.torch or "missing") + "), so analysis "
+              "runs on the CPU and the live view will be slow. If you have an NVIDIA GPU, start the app with the "
+              "project's virtual environment instead (see README > Quick start).")
 
     camera = None
     if settings.app.source == "camera":

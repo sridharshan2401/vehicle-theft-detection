@@ -349,3 +349,88 @@ def test_resolution_argument():
     assert (o["camera.width"], o["camera.height"], o["camera.index"]) == (640, 480, 1)
     with pytest.raises(SystemExit):
         build_parser().parse_args(["--resolution", "big"])
+
+
+# ---- start-up window and launcher ------------------------------------------------
+class SlowWarmupDetector(ColorBlobDetector):
+    """Colour-blob detector whose GPU warm-up takes a moment, like the real one."""
+
+    def warmup(self, size, frame_shape=None, runs=2):
+        time.sleep(0.4)
+
+
+def test_window_shows_live_camera_while_starting_up(test_settings):
+    from test_video_pipeline import ScriptedWindow
+
+    frame = np.full((240, 320, 3), 80, np.uint8)
+    cap = FakeCapture([frame], read_delay=0.01)
+    window = ScriptedWindow([ord("q")])
+    s = test_settings(**{"app.display": True})
+    src = CameraSource(s.camera, factory(cap))
+    info = src.open()
+    p = Pipeline(s, info, "cpu", False, detector=SlowWarmupDetector(), tracker_factory=iou_tracker_factory,
+                 display=True, window=window, camera=src, clock=lambda: cap.i / 10.0)
+    summary = p.run()
+    # start-up frames were shown before any analysis, and they are the camera picture (darkened, with text)
+    assert len(window.status_frames) >= 3
+    status = window.status_frames[0]
+    assert status.shape == frame.shape and int(np.median(status)) == int(80 * 0.55)
+    # then analysed frames were displayed until 'q'
+    assert window.shown >= 5 and summary["stats"]["frames_displayed"] == window.shown
+    assert summary["mode"] == "live" and summary["frames_balanced"]
+    assert src.released and not window.opened
+
+
+def test_quit_during_startup_releases_camera_and_analyses_nothing(test_settings):
+    from test_video_pipeline import ScriptedWindow
+
+    cap = FakeCapture(read_delay=0.01)
+    window = ScriptedWindow([], quit_during_startup=True)
+    s = test_settings(**{"app.display": True})
+    src = CameraSource(s.camera, factory(cap))
+    info = src.open()
+    p = Pipeline(s, info, "cpu", False, detector=SlowWarmupDetector(), tracker_factory=iou_tracker_factory,
+                 display=True, window=window, camera=src)
+    summary = p.run()
+    assert window.status_frames and window.shown == 0
+    assert summary["status"] == "finished" and summary["stats"]["frames_read"] == 0
+    assert p.reader._thread.ident is None  # the camera reader never started
+    assert src.released and not window.opened
+
+
+def test_launcher_passes_options_through(monkeypatch):
+    import run_webcam
+
+    import app.main as main_mod
+
+    seen = []
+    monkeypatch.setattr(main_mod, "main", lambda argv: seen.append(argv) or 0)
+    assert run_webcam.main(["--camera", "1"]) == 0
+    assert run_webcam.main([]) == 0
+    assert seen == [["--camera", "1"], []]
+
+
+def test_launcher_refuses_video_and_wrong_python(monkeypatch, capsys):
+    import run_webcam
+
+    assert run_webcam.main(["--video", "clip.mp4"]) == 2
+    assert run_webcam.main(["--pick-video"]) == 2
+    real_find = run_webcam.importlib.util.find_spec
+    monkeypatch.setattr(run_webcam.importlib.util, "find_spec", lambda name: None if name == "torch" else real_find(name))
+    assert run_webcam.main([]) == 2
+    out = capsys.readouterr().out
+    assert "is missing: torch" in out and "virtual environment" in out
+
+
+def test_cpu_fallback_is_announced(monkeypatch, capsys):
+    from app import main as main_mod
+
+    class NoCamera(CameraSource):
+        def open(self):
+            raise CameraError("Camera 0 could not be used (test)")
+
+    monkeypatch.setattr(main_mod, "CameraSource", NoCamera)
+    monkeypatch.setattr(main_mod, "select_device", lambda *a: ("cpu", False))
+    assert main_mod.main(["--no-display"]) == 5
+    out = capsys.readouterr().out
+    assert "Python: " in out and "WARNING: no usable CUDA GPU" in out

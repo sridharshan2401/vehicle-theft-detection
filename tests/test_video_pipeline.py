@@ -247,15 +247,28 @@ def test_suspicious_scene_produces_alert_with_evidence(test_settings, tmp_path):
 
 
 class ScriptedWindow:
-    """Stands in for the OpenCV window and replays a list of key presses."""
+    """Stands in for the OpenCV window and replays a list of key presses.
 
-    def __init__(self, keys):
+    Start-up status frames (show_status / poll_quit) are recorded separately and never
+    consume the scripted keys, which are meant for the main display loop.
+    """
+
+    def __init__(self, keys, quit_during_startup=False):
         self.keys = list(keys)
         self.shown = 0
+        self.status_frames = []
+        self.quit_during_startup = quit_during_startup
         self.opened = True
 
     def show(self, frame):
         self.shown += 1
+
+    def show_status(self, frame):
+        self.status_frames.append(frame)
+
+    def poll_quit(self, wait_ms=1):
+        time.sleep(wait_ms / 1000)
+        return self.quit_during_startup
 
     def poll_key(self, wait_ms=1):
         time.sleep(wait_ms / 1000)
@@ -271,8 +284,9 @@ class ScriptedWindow:
 def test_keyboard_controls_and_quit(test_settings, scene_video):
     s = test_settings(**{"app.mode": "complete", "app.display": True})
     info = probe_video(scene_video)
-    p = Pipeline(s, info, "cpu", False, detector=ColorBlobDetector(), tracker_factory=iou_tracker_factory, display=True)
-    p.setup = _wrap_setup(p, ScriptedWindow([ord(" "), ord(" "), ord("s"), ord("r"), ord("q")]))
+    window = ScriptedWindow([ord(" "), ord(" "), ord("s"), ord("r"), ord("q")])
+    p = Pipeline(s, info, "cpu", False, detector=ColorBlobDetector(), tracker_factory=iou_tracker_factory,
+                 display=True, window=window)
     summary = p.run()
     assert p.renderer.mode_name == "boxes"  # 'r' cycled the overlay once
     assert list(p.paths.snapshots.glob("manual_*.jpg"))  # 's' saved a snapshot
@@ -280,16 +294,6 @@ def test_keyboard_controls_and_quit(test_settings, scene_video):
     assert st["frames_read"] < 60  # 'q' stopped before the end
     assert summary["frames_balanced"] and not summary["reached_end_of_video"]
     assert not p.display.opened
-
-
-def _wrap_setup(p, window):
-    original = p.setup
-
-    def setup():
-        original()
-        p.display = window
-
-    return setup
 
 
 def test_detector_failure_shuts_down_cleanly(test_settings, scene_video):

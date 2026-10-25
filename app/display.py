@@ -175,8 +175,29 @@ class Renderer:
         return img
 
 
+def render_status(frame: np.ndarray, lines: list[str]) -> np.ndarray:
+    """Start-up screen: the raw picture, darkened, with a few lines of status text on top.
+
+    Used while the models load so the window (and, in live mode, the camera picture)
+    appears straight away instead of after 10-20 s of silence.
+    """
+    img = (frame * 0.55).astype(np.uint8)
+    h, w = img.shape[:2]
+    scale = max(0.5, min(1.1, w / 1280 * 0.9))
+    thick = 1 if w < 1100 else 2
+    y = int(40 * scale) + 10
+    for i, text in enumerate(lines):
+        color = (0, 255, 255) if i == 0 else (255, 255, 255)
+        cv2.putText(img, text, (16, y), cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), thick + 3, cv2.LINE_AA)
+        cv2.putText(img, text, (16, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA)
+        y += int(36 * scale) + 6
+    return img
+
+
 class DisplayWindow:
     """OpenCV window. Must be driven from the main thread on Windows."""
+
+    QUIT_KEYS = {ord("q"), ord("Q"), 27}
 
     def __init__(self, name: str, max_width: int):
         self.name = name
@@ -195,6 +216,14 @@ class DisplayWindow:
     def poll_key(self, wait_ms: int = 1) -> int:
         key = cv2.waitKey(wait_ms) & 0xFF
         return key
+
+    def show_status(self, frame: np.ndarray) -> None:
+        """A start-up/status frame (same window; separate method so tests can tell them apart)."""
+        self.show(frame)
+
+    def poll_quit(self, wait_ms: int = 1) -> bool:
+        """True if the user pressed Q / Esc or closed the window (used while starting up)."""
+        return self.poll_key(wait_ms) in self.QUIT_KEYS or self.closed_by_user()
 
     def closed_by_user(self) -> bool:
         if not self.opened:

@@ -21,9 +21,10 @@ python -m pytest tests\test_risk_engine.py -v
 
 ## Automated test results
 
-Run on 2026-10-24 from `E:\vehicle-theft-detection`, Windows 11, Python 3.12.10, RTX 5050 Laptop GPU:
-**122 passed, 0 failed, 0 skipped.** (70 in the first round; 31 added with the evaluation harness
-and false-positive work; 21 added with live camera mode, see the end of the table.)
+Run on 2026-10-25 from `E:\vehicle-theft-detection`, Windows 11, Python 3.12.10, RTX 5050 Laptop GPU:
+**127 passed, 0 failed, 0 skipped.** (70 in the first round; 31 added with the evaluation harness
+and false-positive work; 21 added with live camera mode; 5 added with the start-up window and
+`run_webcam.py` launcher, see "Live start-up fixes" below.)
 
 | File | Tests | Covers |
 |---|---|---|
@@ -54,6 +55,40 @@ scene that changed, not the assertion.
   causing 15–16 skipped frames at the start of every responsive run. Warm-up now runs on
   the worker thread with the real frame shape: 0 skipped frames on the same clip.
 * HUD covered labels of people near the top edge; label placement now avoids it.
+
+## Live start-up fixes (2026-10-25)
+
+Problem reported: "the project still shows the old prerecorded-video results". Findings from the
+session database: the live code was present and the default, but the user's runs were started in
+**video mode** (`app.source = video`, the sample clip, consistent with the VS Code "file picker"
+launch entry). Contributing causes found: `python -m app.main` fails outside the project folder
+("No module named app"); plain `python` on the laptop is system Python 3.14 with a CPU-only PyTorch;
+`.vscode/settings.json` pointed at a non-existent `.venv`; the window only appeared after 10–20 s of
+model loading; the README's screenshots were all from video mode.
+
+Changes: the window now opens immediately and shows the live camera while the models load (Q /
+close works during start-up); `run_webcam.py` launches live mode from any folder and refuses a
+Python without the packages; `main.py` prints the interpreter and warns when it falls back to CPU;
+VS Code launch entries use the project environment and are labelled LIVE WEBCAM / PRERECORDED VIDEO.
+
+New tests (in `test_camera.py`, with a fake camera and a scripted window): start-up frames are the
+camera picture and come before analysed frames; quitting during start-up releases the camera and
+analyses nothing; the launcher passes options through, refuses `--video`, and explains a missing
+package; the CPU fallback prints a warning and the interpreter path. The keyboard-controls test now
+passes its scripted window in through the new `window=` argument (same assertions).
+
+Real webcam on 2026-10-25 (power state not recorded; no camera images viewed or saved):
+
+| Check | Result |
+|---|---|
+| Windows camera permission | camera access Allow (system and user), "desktop apps" Allow; one device, "Integrated Camera", status OK |
+| Launch from `C:\Users\Dharshan` with `...\vtd\Scripts\python.exe E:\vehicle-theft-detection\run_webcam.py` | worked (this folder used to fail with "No module named app") |
+| Window appears | 6.1 s after launch, 0.1 s after the camera opened, showing the live picture; 247 start-up frames shown during loading/warm-up |
+| Analysis | run 1: 400 read / 390 analysed / 10 dropped, 23.6 FPS, detector 14.8 ms. Run 2: 300 / 300 / 0, camera delivered ≈14.6 FPS (likely low light), detector 16.1 ms |
+| People | tracked (1 ReID identity in run 2) |
+| Vehicles / alerts | none in view, so no vehicle events and `risk: none`: live alerts remain verified only with the simulated camera |
+| Recording | none: session folder holds `session.json` only |
+| Exit | camera released, exit code 0 |
 
 ## Live webcam manual test (2026-10-24)
 

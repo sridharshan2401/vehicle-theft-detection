@@ -2,37 +2,51 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run app on live webcam (camera 0)",
+      "name": "LIVE WEBCAM (camera 0)",
       "type": "debugpy",
       "request": "launch",
-      "module": "app.main",
+      "program": "${workspaceFolder}/run_webcam.py",
+      "python": "${env:USERPROFILE}\\.venvs\\vtd\\Scripts\\python.exe",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
     },
     {
-      "name": "Run app on a video file (file picker)",
+      "name": "LIVE WEBCAM (camera 1, external)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_webcam.py",
+      "args": ["--camera", "1"],
+      "python": "${env:USERPROFILE}\\.venvs\\vtd\\Scripts\\python.exe",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "PRERECORDED VIDEO: pick a file (not the webcam)",
       "type": "debugpy",
       "request": "launch",
       "module": "app.main",
       "args": ["--pick-video"],
+      "python": "${env:USERPROFILE}\\.venvs\\vtd\\Scripts\\python.exe",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
     },
     {
-      "name": "Run app on sample video (complete mode)",
+      "name": "PRERECORDED VIDEO: sample clip, complete mode (not the webcam)",
       "type": "debugpy",
       "request": "launch",
       "module": "app.main",
       "args": ["--video", "data/samples/person-bicycle-car-detection.mp4", "--mode", "complete"],
+      "python": "${env:USERPROFILE}\\.venvs\\vtd\\Scripts\\python.exe",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
     },
     {
-      "name": "Zone editor",
+      "name": "Zone editor (camera 0)",
       "type": "debugpy",
       "request": "launch",
       "module": "app.zone_editor",
-      "args": ["--video", "data/samples/person-bicycle-car-detection.mp4"],
+      "args": ["--camera", "0"],
+      "python": "${env:USERPROFILE}\\.venvs\\vtd\\Scripts\\python.exe",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal"
     }

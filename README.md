@@ -9,6 +9,41 @@ video can still be analysed with `--video`.
 It is a prototype. It does not prove anything about anyone. It points a person
 at the moments worth checking.
 
+## Quick start: live webcam
+
+In the VS Code terminal (PowerShell), on the development laptop:
+
+```powershell
+cd E:\vehicle-theft-detection
+C:\Users\Dharshan\.venvs\vtd\Scripts\python.exe run_webcam.py
+```
+
+`run_webcam.py` works from any folder, so this also works without the `cd`:
+
+```powershell
+C:\Users\Dharshan\.venvs\vtd\Scripts\python.exe E:\vehicle-theft-detection\run_webcam.py
+```
+
+On another machine, use your own environment's `python.exe` and project path; the
+equivalent from inside the project folder is `python -m app.main` (with the environment active).
+
+What you should see:
+
+1. Within a few seconds a window opens showing the **raw camera picture** with
+   "LIVE CAMERA camera:0 - starting / Loading AI models..." on top.
+2. About 10–20 s later (model loading and GPU warm-up) the analysis starts: boxes, masks,
+   `P001`/`V001` IDs, the status panel and the "LIVE CAMERA - ... not proof of theft" banner.
+3. Press **Q** or **Esc**, or close the window, to quit. The camera is released.
+
+Other cameras: add `--camera 1`. In VS Code you can also press F5 with **"LIVE WEBCAM (camera 0)"**
+selected in Run and Debug. The entries starting with **"PRERECORDED VIDEO"** analyse a file instead
+of the webcam.
+
+Risk alerts only appear when the existing rules see the pattern they look for: a **vehicle** that
+has been standing still for 3 s, a person lingering next to it, the person overlapping it and
+disappearing, then the vehicle moving. A laptop webcam pointed at a room will show people being
+detected and tracked with `risk: none`, which is the correct result there, not a fault.
+
 ### What it can and cannot tell you
 
 | Level | What it means | Status |
@@ -81,18 +116,21 @@ More detail: [docs/SYSTEM_ARCHITECTURE.md](docs/SYSTEM_ARCHITECTURE.md).
 
 ## Example output
 
-Real output of this app on a public car-park clip (Intel `sample-videos`,
-CC BY 4.0), complete-evidence mode on an RTX 5050 laptop GPU:
+**Live camera mode** (the default). This picture was produced by the live-camera code path
+(status panel, risk line with its reason, banner) fed with the **synthetic test scene** through a
+simulated camera, because no real footage of a vehicle incident is included. Coloured rectangles
+stand in for a car and a person; it is not real footage. With your webcam, the same panel and
+labels are drawn over the real picture.
 
-![Person with mask, ID and clothing colours](docs/images/real_output_person.png)
+![Live mode, synthetic scene: MEDIUM alert with reason](docs/images/live_mode_synthetic_alert.jpg)
 
-![Car with instance mask and state](docs/images/real_output_car.png)
+**Prerecorded video mode** (`--video`). These are older screenshots of the app analysing a public
+car-park clip (Intel `sample-videos`, CC BY 4.0) in complete-evidence mode. They show what detection
+and segmentation look like on real footage; they are **not** the live webcam view:
 
-The image below is from the **synthetic test scene** used by the automated tests
-(coloured rectangles stand in for detections). It shows what an alert looks like;
-it is not real footage:
+![Video mode: person with mask, ID and clothing colours](docs/images/real_output_person.png)
 
-![Synthetic alert example](docs/images/synthetic_alert_example.jpg)
+![Video mode: car with instance mask and state](docs/images/real_output_car.png)
 
 To capture your own screenshot, press **S** while the window is open; it goes to
 `evidence/<session>/snapshots/`.
@@ -267,7 +305,7 @@ Browse results with `python -m app.manage sessions`, `events --session <id>` and
 python -m pytest
 ```
 
-122 tests, all passing on the machine above. Most use synthetic videos, scripted tracks,
+127 tests, all passing on the machine above. Most use synthetic videos, scripted tracks,
 a fake camera and simple stand-in detectors, so they test the software logic, not model
 accuracy, and no webcam is needed. A few smoke tests use the real downloaded models and are
 skipped if the weights are missing.
@@ -303,6 +341,10 @@ owner returning, theft…) through the rules. It is a regression check, not an a
 | Many skipped frames in responsive mode | Expected when the GPU is slower than the video. Use `--mode complete`, `--weights models\yolo11n-seg.pt`, or `--no-clothing`. |
 | `out of memory` on a 4 GB card | Use `yolo11n-seg.pt`, `--imgsz 512`, or `--no-clothing`. |
 | PowerShell blocks `Activate.ps1` | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
+| I see the old prerecorded sample video, not my webcam | You started video mode. `--video`, `--pick-video` and the VS Code entries named "PRERECORDED VIDEO ..." analyse a file. Use the Quick start command (`run_webcam.py`) or the "LIVE WEBCAM (camera 0)" entry. The live window says `LIVE camera:0` top left; video mode says `RESPONSIVE`/`COMPLETE`. Old screenshots in this README and old files in `evidence/` are from video mode. |
+| `No module named 'app'` | You ran `python -m app.main` outside the project folder. Run `run_webcam.py` by its full path (works anywhere), or `cd E:\vehicle-theft-detection` first. |
+| `WARNING: no usable CUDA GPU` / very slow live view | You started it with a Python whose PyTorch is CPU-only (on the dev laptop, plain `python` is system Python 3.14 with `torch ...+cpu`). Use the project environment's `python.exe` as in the Quick start; the first line printed (`Python: ...`) shows which one is running. |
+| Window opens but stays on "Loading AI models..." | Normal for 10–20 s (model load + GPU warm-up). It shows the raw camera meanwhile. Longer on battery. |
 | `Camera 0 could not be used` | Close other apps using the camera (Camera, Teams, Zoom, browser tabs); check Windows Settings > Privacy & security > Camera > "Let desktop apps access your camera"; check the privacy shutter / camera key; try `--camera 1`. |
 | Camera opens but shows `waiting for frames` or `stopped delivering frames` | Try `--camera-backend msmf`, a lower `--resolution 640x480`, or replug a USB camera. |
 | Live view feels behind | It always analyses the newest frame; if the analysed FPS is low, try `--weights models\yolo11n-seg.pt`, `--no-clothing` or `--resolution 960x540`, and plug the laptop in (on battery the GPU runs much slower). |
